@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Real-Time Facial Recognition and Sentiment Analysis</title>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+  </head>
+  <body>
+    <video id="video" width="720" height="560" autoplay muted></video>
+    <canvas id="canvas" width="720" height="560"></canvas>
+
+    <script>
+      // Get references to the video element, canvas element, and the 2D rendering context of the canvas
+      const video = document.getElementById("video");
+      const canvas = document.getElementById("canvas");
+      const context = canvas.getContext("2d");
+
+      // Connect to the Socket.IO server running on localhost:5000
+      const socket = io.connect("http://localhost:5000");
+
+      let lastBox = null; // Store the last known bounding box of a detected face
+      let lastEmotion = null; // Store the last known emotion detected
+
+      // Request access to the user's camera and start streaming video
+      navigator.mediaDevices
+        .getUserMedia({ video: true })
+        .then(function (stream) {
+          video.srcObject = stream;
+          video.onloadedmetadata = function (e) {
+            video.play();
+            setInterval(sendFrame, 500); // Send frames every 500ms
+          };
+        });
+
+      // Capture a frame from the video stream, send it to the server, and draw it on the canvas
+      function sendFrame() {
+        context.clearRect(0, 0, canvas.width, canvas.height); // Clear the canvas here
+        context.drawImage(video, 0, 0, 720, 560);
+        let dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+        socket.emit("frame", dataUrl);
+      }
+
+      // Receive frame analysis results from the server and update the canvas with the analyzed frame
+      socket.on("frame_results", function (data) {
+        let img = new Image();
+        img.onload = function () {
+          context.drawImage(img, 0, 0, 720, 560);
+
+          // If a face is detected in the current frame, update lastBox and lastEmotion
+          if (data.emotion && data.emotion.length > 0) {
+            lastBox = data.emotion[0].box;
+            const emotions = data.emotion[0].emotions;
+            lastEmotion = Object.keys(emotions).reduce((a, b) =>
+              emotions[a] > emotions[b] ? a : b
+            );
+          }
+
+          // Draw the last known bounding box and emotion
+          if (lastBox) {
+            context.beginPath();
+            context.rect(lastBox[0], lastBox[1], lastBox[2], lastBox[3]);
+            context.lineWidth = 3;
+            context.strokeStyle = "red";
+            context.fillStyle = "red";
+            context.stroke();
+
+            context.font = "30px Arial"; // Change the font size to 30px
+            context.fillStyle = "blue"; // Change the text color to blue
+            context.fillText(
+              lastEmotion,
+              lastBox[0],
+              lastBox[1] > 15 ? lastBox[1] - 5 : 10
+            );
+          }
+        };
+        img.src = "data:image/jpeg;base64," + data.frame;
+      });
+    </script>
+  </body>
+</html>
